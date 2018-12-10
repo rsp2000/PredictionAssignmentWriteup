@@ -1,0 +1,206 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Pereira, Ronaldo S."
+date: "8 de dezembro de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The goal of this project is to predict the manner in which 6 participants did some exercises using data from acelerometers on the belt, forearm, arm, and dumbell. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har].
+
+## Introduction 
+
+The "classe" variable in the training set represents the manner in which they did the exercise.
+This document state details about the used model, the cross-validation and the prediction process.
+
+## Model Details
+
+The participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl.
+The way the participants did the exercises is represented by the classe variable, divided in 5 sub-classes:
+
+- Class A: the exercise was done according to the specification;
+
+- Class B: throwing the elbows to the front;
+
+- Class C: lifting the dumbbell only halfway;
+
+- Class D: lowering the dumbbell only halfway;
+
+- Class E: throwing the hips to the front.
+
+We will try to maximize the accuracy and minimize the out-of-sample error, in order to evaluate the Prediction.
+It will be tested the decision tree and random forest algorithms, in order to find the the highest accuracy.
+We will use other available variables, after cleaning.
+
+## Cross-validation
+
+The cross-validation process: 
+We will subsample our training data set, in a random way, without replacement and creating two subsamples:  25% - Test data and 75% - Train data.
+The model will be applyed on this Train data and, after that, will be tested on this Test data. Only after the best accurate model was found, it will be applyed on the original Test data set.
+
+
+
+## Sample errors
+
+The out-of-sample error will be the accuracy found in the cross-validation data.
+It corresponds to the proportion of correct classified observation over the total sample, considering the Test data subsample. As the desired accuracy is the expected accuray in the out-of-sample data set, than the error will correspond to the number of missclassified observations over the total observations in the Test data set.
+
+The Training sample was divided in 2 subsamples, because it is large enough, what allow the cross-validation. 
+It will be discarded irrelevant features and that ones with all missing values.
+The accuracy error type was chosen because the variable "classe" is unordered.
+
+## Prediction
+
+Installation:
+
+```{r}
+set.seed(1272)  # attention: use the same seed in order to find the same results
+library(randomForest)
+library(RColorBrewer)
+library(rattle)
+library(caret)
+library(rpart) 
+library(rpart.plot)
+```
+
+Load Test and Training data:
+
+```{r}
+testcsv <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), na.strings=c("NA","#DIV/0!",""))
+traincsv <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), na.strings=c("NA","#DIV/0!",""))
+```
+
+Create the subsample data sets from traincsv: 40% - Test and 60% - Train
+
+```{r}
+partTrain <- createDataPartition(y=traincsv$classe, p=0.6, list=FALSE)
+subTrain <- traincsv[partTrain, ]; subTest <- traincsv[-partTrain, ]
+```
+
+The data was cleanned using some transformations:
+
+Transf. 1: Cleaning NearZeroVariance Variables Run this code to view possible NZV Variables:
+
+```{r}
+Dnzv <- nearZeroVar(subTrain, saveMetrics=TRUE)
+```
+
+Other subset of NZV variables.
+
+```{r}
+otherNZV <- names(subTrain) %in% c("new_window", "kurtosis_roll_belt", "kurtosis_picth_belt",
+"kurtosis_yaw_belt", "skewness_roll_belt", "skewness_roll_belt.1", "skewness_yaw_belt",
+"max_yaw_belt", "min_yaw_belt", "amplitude_yaw_belt", "avg_roll_arm", "stddev_roll_arm",
+"var_roll_arm", "avg_pitch_arm", "stddev_pitch_arm", "var_pitch_arm", "avg_yaw_arm",
+"stddev_yaw_arm", "var_yaw_arm", "kurtosis_roll_arm", "kurtosis_picth_arm",
+"kurtosis_yaw_arm", "skewness_roll_arm", "skewness_pitch_arm", "skewness_yaw_arm",
+"max_roll_arm", "min_roll_arm", "min_pitch_arm", "amplitude_roll_arm", "amplitude_pitch_arm",
+"kurtosis_roll_dumbbell", "kurtosis_picth_dumbbell", "kurtosis_yaw_dumbbell", "skewness_roll_dumbbell",
+"skewness_pitch_dumbbell", "skewness_yaw_dumbbell", "max_yaw_dumbbell", "min_yaw_dumbbell",
+"amplitude_yaw_dumbbell", "kurtosis_roll_forearm", "kurtosis_picth_forearm", "kurtosis_yaw_forearm",
+"skewness_roll_forearm", "skewness_pitch_forearm", "skewness_yaw_forearm", "max_roll_forearm",
+"max_yaw_forearm", "min_roll_forearm", "min_yaw_forearm", "amplitude_roll_forearm",
+"amplitude_yaw_forearm", "avg_roll_forearm", "stddev_roll_forearm", "var_roll_forearm",
+"avg_pitch_forearm", "stddev_pitch_forearm", "var_pitch_forearm", "avg_yaw_forearm",
+"stddev_yaw_forearm", "var_yaw_forearm")
+subTrain <- subTrain[!otherNZV]
+```
+
+Transf. 2: Deleting first column of Dataset - ID Removing first ID variable so that it does not interfer with ML Algorithms:
+
+```{r}
+subTrain <- subTrain[c(-1)]
+```
+
+Transf. 3: Deleting Variables with too many NAs ( threshold - 60%  of NA's ):
+
+```{r}
+trainTransf <- subTrain 
+for(k in 1:length(subTrain)) { 
+        if( sum( is.na( subTrain[, k] ) ) /nrow(subTrain) >= .6 ) { 
+        for(m in 1:length(trainTransf)) {
+            if( length( grep(names(subTrain[k]), names(trainTransf)[m]) ) ==1)  { 
+                trainTransf <- trainTransf[ , -m] # Delete that column
+            }   
+        } 
+    }
+}
+
+#Adjust the data set:
+subTrain <- trainTransf
+rm(trainTransf)
+```
+
+Apply the transformations on subTest and testcsv data sets.
+
+```{r}
+subTest <- subTest[colnames(subTrain)]
+aux <- colnames(subTrain[, -58])
+testcsv <- testcsv[aux]
+```
+
+Adjust the data type before the Algorithm of prediction
+
+```{r}
+for (k in 1:length(testcsv) ) {
+        for(m in 1:length(subTrain)) {
+        if( length( grep(names(subTrain[k]), names(testcsv)[m]) ) ==1)  {
+            class(testcsv[m]) <- class(subTrain[k])
+        }      
+    }      
+}
+testcsv <- rbind(subTrain[2, -58] , testcsv)
+testcsv <- testcsv[-1,]
+```
+
+Decision Tree Algorithm
+
+```{r}
+dtPrediction <- rpart(classe ~ ., data=subTrain, method="class")
+```
+
+Plot the tree :
+
+```{r dtPrediction, echo=FALSE}
+fancyRpartPlot(dtPrediction)
+
+```
+
+Predicting:
+
+```{r}
+dtpre <- predict(dtPrediction, subTest, type = "class")
+```
+
+Test the results with confusion Matrix:
+
+
+```{r}
+confusionMatrix(dtpre, subTest$classe)
+```
+
+
+Random Forests Algorithm
+
+```{r}
+rfPrediction <- randomForest(classe ~. , data=subTrain)
+```
+
+Predicting:
+
+```{r}
+rfpre <- predict(rfPrediction, subTest, type = "class")
+```
+
+Test results with confusion Matrix:
+
+```{r}
+confusionMatrix(rfpre, subTest$classe)
+```
+
+The Random Forests Results were better than Decision Tree.
